@@ -37,6 +37,12 @@ public class ExplorationScreen implements Screen {
     private TiledMap map;
     private OrthogonalTiledMapRenderer renderer;
     private TiledMapTileLayer collisionLayer;
+    private TiledMapTileLayer chairLayer;
+    private TiledMapTileLayer tableLayer;
+    private TiledMapTileLayer table2Layer;
+    private TiledMapTileLayer table3Layer;
+    private TiledMapTileLayer table4Layer;
+    private TiledMapTileLayer propsLayer;
     private int mapWidth;
     private int mapHeight;
 
@@ -101,6 +107,17 @@ public class ExplorationScreen implements Screen {
             collisionLayer.setVisible(false);
         }
 
+        // Ambil Layer untuk rendering atas/bawah player
+        chairLayer = (TiledMapTileLayer) map.getLayers().get("Chair");
+        tableLayer = (TiledMapTileLayer) map.getLayers().get("Table");
+        if (tableLayer == null) {
+            tableLayer = (TiledMapTileLayer) map.getLayers().get("Table_1");
+        }
+        table2Layer = (TiledMapTileLayer) map.getLayers().get("Table_2");
+        table3Layer = (TiledMapTileLayer) map.getLayers().get("Table_3");
+        table4Layer = (TiledMapTileLayer) map.getLayers().get("Table_4");
+        propsLayer = (TiledMapTileLayer) map.getLayers().get("Props");
+
         // Load Deo animations
         walkNorth = loadWalkAnimation("North");
         walkEast = loadWalkAnimation("East");
@@ -162,44 +179,67 @@ public class ExplorationScreen implements Screen {
         updateCamera();
         renderer.setView(camera);
 
+        // 1. Determine which layers are above/below the player based on coordinates
+        boolean overChair = isOverlappingChair();
+        boolean overTable1 = (playerY >= 350f && playerY <= 410f);
+        boolean overTable2 = (playerY >= 440f && playerY <= 500f) || (playerY >= 250f && playerY <= 310f);
+        boolean overTable3 = (playerY >= 150f && playerY <= 210f);
+        boolean overTable4 = (playerY >= 60f && playerY <= 120f);
+        boolean overProps = overTable1 || overTable2 || overTable3 || overTable4;
+
+        // 2. Set visibility for the first pass (render below player)
+        // Set all layers to visible by default, except the collision layer which is always hidden
+        for (com.badlogic.gdx.maps.MapLayer layer : map.getLayers()) {
+            layer.setVisible(true);
+        }
         if (collisionLayer != null) {
             collisionLayer.setVisible(false);
         }
 
-        TiledMapTileLayer chairLayer = (TiledMapTileLayer) map.getLayers().get("Chair");
-        int chairLayerIndex = map.getLayers().getIndex("Chair");
-        boolean overChair = isOverlappingChair();
+        // Hide layers that should be drawn ABOVE the player
+        if (overChair && chairLayer != null) chairLayer.setVisible(false);
+        if (overTable1 && tableLayer != null) tableLayer.setVisible(false);
+        if (overTable2 && table2Layer != null) table2Layer.setVisible(false);
+        if (overTable3 && table3Layer != null) table3Layer.setVisible(false);
+        if (overTable4 && table4Layer != null) table4Layer.setVisible(false);
+        if (overProps && propsLayer != null) propsLayer.setVisible(false);
 
-        if (overChair && chairLayer != null && chairLayerIndex != -1) {
-            // Sembunyikan layer "Chair" terlebih dahulu saat render peta dasar
-            chairLayer.setVisible(false);
+        // 3. Render base map (all layers currently visible)
+        renderer.render();
+
+        // 4. Render Karakter Deo di atas peta dasar
+        spriteBatch.setProjectionMatrix(camera.combined);
+        spriteBatch.begin();
+        TextureRegion currentFrame = getPlayerFrame();
+        spriteBatch.draw(currentFrame, playerX, playerY, 84f, 84f);
+        drawCoordinates();
+        spriteBatch.end();
+
+        // 5. Render layers above the player
+        // Hide all layers first
+        for (com.badlogic.gdx.maps.MapLayer layer : map.getLayers()) {
+            layer.setVisible(false);
+        }
+
+        // Show only the layers that should be drawn ABOVE the player
+        boolean hasAboveLayers = false;
+        if (overChair && chairLayer != null) { chairLayer.setVisible(true); hasAboveLayers = true; }
+        if (overTable1 && tableLayer != null) { tableLayer.setVisible(true); hasAboveLayers = true; }
+        if (overTable2 && table2Layer != null) { table2Layer.setVisible(true); hasAboveLayers = true; }
+        if (overTable3 && table3Layer != null) { table3Layer.setVisible(true); hasAboveLayers = true; }
+        if (overTable4 && table4Layer != null) { table4Layer.setVisible(true); hasAboveLayers = true; }
+        if (overProps && propsLayer != null) { propsLayer.setVisible(true); hasAboveLayers = true; }
+
+        if (hasAboveLayers) {
             renderer.render();
+        }
 
-            // 4. Render Karakter Deo di atas peta dasar
-            spriteBatch.setProjectionMatrix(camera.combined);
-            spriteBatch.begin();
-            TextureRegion currentFrame = getPlayerFrame();
-            spriteBatch.draw(currentFrame, playerX, playerY, 84f, 84f);
-            drawCoordinates();
-            spriteBatch.end();
-
-            // Render layer "Chair" di atas player!
-            chairLayer.setVisible(true);
-            renderer.render(new int[]{ chairLayerIndex });
-        } else {
-            // Tampilkan normal (Chair di bawah player)
-            if (chairLayer != null) {
-                chairLayer.setVisible(true);
-            }
-            renderer.render();
-
-            // 4. Render Karakter Deo di atas semuanya
-            spriteBatch.setProjectionMatrix(camera.combined);
-            spriteBatch.begin();
-            TextureRegion currentFrame = getPlayerFrame();
-            spriteBatch.draw(currentFrame, playerX, playerY, 84f, 84f);
-            drawCoordinates();
-            spriteBatch.end();
+        // Restore normal visibility for map operations
+        for (com.badlogic.gdx.maps.MapLayer layer : map.getLayers()) {
+            layer.setVisible(true);
+        }
+        if (collisionLayer != null) {
+            collisionLayer.setVisible(false);
         }
 
         // 5. Render Dialog Battle Prompt jika aktif
