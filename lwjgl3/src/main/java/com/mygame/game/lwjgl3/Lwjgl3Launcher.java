@@ -8,6 +8,15 @@ import com.mygame.game.TheLastAncestorsGame;
 public class Lwjgl3Launcher {
     public static void main(String[] args) {
         if (StartupHelper.startNewJvmIfRequired()) return; // This handles macOS support and helps on Windows.
+
+        // Mencetak logo warna-warni ke Terminal / Console output (System.out)
+        System.out.println("\n\u001B[93m" + "  _____ _            _                _                                   _              " + "\u001B[0m");
+        System.out.println("\u001B[93m" + " |_   _| |__   ___  | |    __ _  ___| |_    /\\  _ __   ___ ___  ___  ___ | |_ ___  _ __ " + "\u001B[0m");
+        System.out.println("\u001B[91m" + "   | | | '_ \\ / _ \\ | |   / _` |/ __| __|  /  \\| '_ \\ / __/ _ \\/ __|/ __|| __/ _ \\| '__|" + "\u001B[0m");
+        System.out.println("\u001B[91m" + "   | | | | | |  __/ | |__| (_| |\\__ \\ |_  / /\\ \\ | | | (_|  __/\\__ \\ (__ | || (_) | |   " + "\u001B[0m");
+        System.out.println("\u001B[95m" + "   |_| |_| |_|\\___| |_____\\__,_||___/\\__|/_/  \\_\\_| |_|\\___\\___||___/\\___| \\__\\___/|_|   " + "\u001B[0m");
+        System.out.println("\u001B[96m" + "                       * DEVELOPER BUILD - SYSTEMS INITIATED *" + "\u001B[0m\n");
+
         createApplication();
     }
 
