@@ -150,6 +150,9 @@ public class BattleScreen implements Screen {
     private Array<Texture> allTextures = new Array<>();
     private boolean buttonsEnabled = true;
 
+    // Dev Console (cheat terminal)
+    private DevConsole devConsole;
+
     // Track click zones
     private Rectangle[] menuButtonRects;
     private BattleMenuIcon[] menuButtonKinds;
@@ -281,6 +284,15 @@ public class BattleScreen implements Screen {
 
         setupMainMenuClickZones();
 
+        // Inisialisasi DevConsole dan pasang InputProcessor untuk keyTyped
+        devConsole = new DevConsole();
+        Gdx.input.setInputProcessor(new com.badlogic.gdx.InputAdapter() {
+            @Override
+            public boolean keyTyped(char character) {
+                return devConsole.keyTyped(character);
+            }
+        });
+
         // Initial spawn sequence
         hideEnemySprite = false;
         blackFlashTicks = 0;
@@ -376,6 +388,37 @@ public class BattleScreen implements Screen {
 
     @Override
     public void render(float delta) {
+        // ── Update & konsumsi cheat DevConsole ────────────────────────
+        devConsole.update(delta);
+        devConsole.handleInput();
+
+        // /heal — pulihkan HP & EN pemain ke penuh
+        if (devConsole.consumeHeal()) {
+            player.hp = player.getMaxHp();
+            player.setMp(player.getMaxMp());
+            showPopupText(false, "+FULL HP", Color.GREEN);
+        }
+
+        // /god — pemain tidak dapat menerima damage (diterapkan lewat override defend nanti)
+        // Flag godMode dibaca di enemyTurn saat damage akan diterapkan.
+
+        // /killboss — langsung set HP boss ke 0 dan trigger checkBattleEnd
+        if (devConsole.consumeKillBoss()) {
+            enemy.hp = 0;
+            checkBattleEnd();
+        }
+
+        // /setstage — pindah ke stage boss tertentu
+        if (devConsole.consumeSetStage()) {
+            int targetStage = devConsole.getRequestedStage();
+            if (targetStage != bossStage) {
+                bossStage = targetStage;
+                enemy.hp = enemy.getMaxHp();
+                changeEnemyState(1);
+                showMessage("SISTEM", "[DEV] Boss stage diset ke " + targetStage);
+            }
+        }
+
         updateLogic(delta);
 
         ScreenUtils.clear(0.15f, 0.15f, 0.2f, 1f);
@@ -617,6 +660,29 @@ public class BattleScreen implements Screen {
 
         // Check input/clicks
         handleClicks();
+
+        // ── Render DevConsole UI di screen-space (selalu di lapisan paling atas) ──────
+        renderBattleConsole();
+    }
+
+    /** Render DevConsole di atas semua elemen, dalam koordinat layar. */
+    private void renderBattleConsole() {
+        if (devConsole == null) return;
+        int sw = Gdx.graphics.getWidth();
+        int sh = Gdx.graphics.getHeight();
+        com.badlogic.gdx.math.Matrix4 screenProj = new com.badlogic.gdx.math.Matrix4();
+        screenProj.setToOrtho2D(0, 0, sw, sh);
+
+        spriteBatch.setProjectionMatrix(screenProj);
+        shapeRenderer.setProjectionMatrix(screenProj);
+
+        // Gunakan font terkecil yang tersedia (font8)
+        devConsole.render(spriteBatch, shapeRenderer, font8, sw, sh);
+
+        // Kembalikan projection ke viewport normal
+        camera.update();
+        spriteBatch.setProjectionMatrix(camera.combined);
+        shapeRenderer.setProjectionMatrix(camera.combined);
     }
 
     private float fy(float swingY, float h) {
@@ -1884,6 +1950,10 @@ public class BattleScreen implements Screen {
             }
         }
         return sb.toString();
+    }
+
+    public DevConsole getDevConsole() {
+        return devConsole;
     }
 
     @Override

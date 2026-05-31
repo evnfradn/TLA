@@ -22,6 +22,29 @@ public class Player extends Character {
         target.defend(this.attack, game, 1000); // Standard 1s delay
     }
 
+    @Override
+    public void defend(int damage, final TheLastAncestorsGame game, int delayMillis) {
+        if (game.getScreen() instanceof BattleScreen) {
+            BattleScreen bs = (BattleScreen) game.getScreen();
+            if (bs.getDevConsole() != null && bs.getDevConsole().isGodMode()) {
+                if (delayMillis > 0) {
+                    com.badlogic.gdx.utils.Timer.schedule(new com.badlogic.gdx.utils.Timer.Task() {
+                        @Override
+                        public void run() {
+                            game.showMessage(name, "kebal karena GOD MODE!");
+                            game.showPopupText(false, "GOD", new Color(1f, 0.85f, 0f, 1f));
+                        }
+                    }, delayMillis / 1000f);
+                } else {
+                    game.showMessage(name, "kebal karena GOD MODE!");
+                    game.showPopupText(false, "GOD", new Color(1f, 0.85f, 0f, 1f));
+                }
+                return;
+            }
+        }
+        super.defend(damage, game, delayMillis);
+    }
+
     // Method Overloading
     public void attack(Character target, TheLastAncestorsGame game, String skillName, int damageMultiplier) {
         game.showMessage(name, "Mengeluarkan skill " + skillName + "!");
