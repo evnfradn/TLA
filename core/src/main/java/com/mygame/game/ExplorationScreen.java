@@ -454,7 +454,11 @@ public class ExplorationScreen implements Screen {
                                     if (isActive) {
                                         tileSortingY = playerY - 1f;
                                     } else {
-                                        tileSortingY = playerY + 1f;
+                                        if (tileY < playerY) {
+                                            tileSortingY = playerY + 1f;
+                                        } else {
+                                            tileSortingY = tileY;
+                                        }
                                     }
 
                                     if (isProp) {
