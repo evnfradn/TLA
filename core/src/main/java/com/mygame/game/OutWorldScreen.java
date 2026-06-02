@@ -25,12 +25,12 @@ import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 
 /**
- * CaveScreen — layar gua yang dituju setelah melihat dari jendela kelas.
+ * OutWorldScreen — layar dunia luar yang dituju setelah keluar dari gua.
  *
- * Spawn: tengah map secara horizontal, 9 tile dari bawah.
- * Map: Eksplore/Cave/Cave_Map.tmx
+ * Spawn: dekat gerbang kiri, X: 32, Y: 277.
+ * Map: Eksplore/AssetOutworld/OutWorld_Map.tmx
  */
-public class CaveScreen implements Screen {
+public class OutWorldScreen implements Screen {
 
     // ── Referensi utama ──────────────────────────────────────────────────────
     private final TheLastAncestorsGame game;
@@ -45,25 +45,29 @@ public class CaveScreen implements Screen {
     // ── Tiled Map ─────────────────────────────────────────────────────────────
     private TiledMap                  map;
     private OrthogonalTiledMapRenderer renderer;
-    private TiledMapTileLayer         groundLayer;
-    private TiledMapTileLayer         pathLayer;
-    private TiledMapTileLayer         wallLayer;
-    private TiledMapTileLayer         collisionLayer;
     private int mapWidth, mapHeight;
 
+    // OutWorld layers
+    private TiledMapTileLayer         groundLayer;
+    private TiledMapTileLayer         pathLayer;
+    private TiledMapTileLayer         plateu1Layer;
+    private TiledMapTileLayer         plateu2Layer;
+    private TiledMapTileLayer         plateu3Layer;
+    private TiledMapTileLayer         plantLayer;
+    private TiledMapTileLayer         treesLayer;
+    private TiledMapTileLayer         collisionLayer;
+
     // ── Player ────────────────────────────────────────────────────────────────
-    // Spawn: tengah horizontal, 9 tile dari bawah
-    // mapWidth = 29, center tile X = 14 → pixelX = 14*32 - 42 = 406
-    // 9 tiles from bottom → pixelY = 9*32 = 288
-    private float playerX = 406f;
-    private float playerY = 288f;
+    // Spawn: X: 687f, Y: 291f
+    private float playerX = 687f;
+    private float playerY = 291f;
     private static final float SPEED = 120f;
 
     private Animation<TextureRegion> walkNorth, walkEast, walkSouth, walkWest;
     private Animation<TextureRegion> idleNorth, idleEast, idleSouth, idleWest;
 
     private enum Direction { NORTH, EAST, SOUTH, WEST }
-    private Direction currentDirection = Direction.SOUTH;
+    private Direction currentDirection = Direction.EAST; // spawn facing east
     private boolean   isMoving   = false;
     private float     stateTime  = 0f;
 
@@ -77,20 +81,16 @@ public class CaveScreen implements Screen {
 
     // ── Fade-in dari transition ───────────────────────────────────────────────
     private float fadeInAlpha = 1f; // starts white, fades to 0
-    private boolean showExitConfirm = false;
 
     // ── Save toast ────────────────────────────────────────────────────────────
     private boolean showSaveToast = false;
     private float   saveToastTimer = 0f;
 
-    // ── Cave ambient darkness overlay alpha ───────────────────────────────────
-    private static final float CAVE_DARK = 0.45f;
-
-    // ── Dev console (reused) ──────────────────────────────────────────────────
+    // ── Dev console ───────────────────────────────────────────────────────────
     private DevConsole devConsole;
 
     // =========================================================================
-    public CaveScreen(TheLastAncestorsGame game) {
+    public OutWorldScreen(TheLastAncestorsGame game) {
         this.game = game;
     }
 
@@ -105,18 +105,24 @@ public class CaveScreen implements Screen {
         uiCamera = new OrthographicCamera();
         uiCamera.setToOrtho(false, 1253, 832);
 
-        // Load cave map
-        map      = new TmxMapLoader().load("Eksplore/Cave/Cave_Map.tmx");
+        // Load outworld map
+        map      = new TmxMapLoader().load("Eksplore/AssetOutworld/OutWorld_Map.tmx");
         renderer = new OrthogonalTiledMapRenderer(map);
 
         MapProperties prop = map.getProperties();
         mapWidth  = prop.get("width",  Integer.class);
         mapHeight = prop.get("height", Integer.class);
 
-        groundLayer = (TiledMapTileLayer) map.getLayers().get("Ground");
-        pathLayer   = (TiledMapTileLayer) map.getLayers().get("Path");
-        wallLayer   = (TiledMapTileLayer) map.getLayers().get("Wall");
+        // Get OutWorld layers
+        groundLayer  = (TiledMapTileLayer) map.getLayers().get("Ground");
+        pathLayer    = (TiledMapTileLayer) map.getLayers().get("Path");
+        plateu1Layer = (TiledMapTileLayer) map.getLayers().get("Plateu 1");
+        plateu2Layer = (TiledMapTileLayer) map.getLayers().get("Plateu 2");
+        plateu3Layer = (TiledMapTileLayer) map.getLayers().get("Plateu 3");
+        plantLayer   = (TiledMapTileLayer) map.getLayers().get("Plant");
+        treesLayer   = (TiledMapTileLayer) map.getLayers().get("Trees");
         collisionLayer = (TiledMapTileLayer) map.getLayers().get("Collision");
+
         if (collisionLayer != null) collisionLayer.setVisible(false);
 
         // Player animations (same ASWD sprites)
@@ -196,14 +202,18 @@ public class CaveScreen implements Screen {
         }
 
         // ── Clear & render map ─────────────────────────────────────────────
-        ScreenUtils.clear(0.05f, 0.04f, 0.08f, 1f);
+        ScreenUtils.clear(0.15f, 0.28f, 0.45f, 1f); // Sky blue themed clearing color
         updateCamera();
         renderer.setView(camera);
 
-        // Pass 1: Render background layers (Ground & Path)
+        // Pass 1: Render background layers (Ground, Path, Plateus, Plants) underneath player
         if (groundLayer != null) groundLayer.setVisible(true);
         if (pathLayer != null) pathLayer.setVisible(true);
-        if (wallLayer != null) wallLayer.setVisible(false);
+        if (plateu1Layer != null) plateu1Layer.setVisible(true);
+        if (plateu2Layer != null) plateu2Layer.setVisible(true);
+        if (plateu3Layer != null) plateu3Layer.setVisible(true);
+        if (plantLayer != null) plantLayer.setVisible(true);
+        if (treesLayer != null) treesLayer.setVisible(false);
         if (collisionLayer != null) collisionLayer.setVisible(false);
         renderer.render();
 
@@ -213,22 +223,15 @@ public class CaveScreen implements Screen {
         spriteBatch.draw(getPlayerFrame(), playerX, playerY, 84f, 84f);
         spriteBatch.end();
 
-        // Pass 2: Render foreground layer (Wall) on top of the player
+        // Pass 2: Render foreground layer (Trees) on top of the player
         if (groundLayer != null) groundLayer.setVisible(false);
         if (pathLayer != null) pathLayer.setVisible(false);
-        if (wallLayer != null) wallLayer.setVisible(true);
+        if (plateu1Layer != null) plateu1Layer.setVisible(false);
+        if (plateu2Layer != null) plateu2Layer.setVisible(false);
+        if (plateu3Layer != null) plateu3Layer.setVisible(false);
+        if (plantLayer != null) plantLayer.setVisible(false);
+        if (treesLayer != null) treesLayer.setVisible(true);
         renderer.render();
-
-        // ── Cave darkness overlay ──────────────────────────────────────────
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        shapeRenderer.setProjectionMatrix(camera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(0f, 0f, 0f, CAVE_DARK);
-        float hw = mapWidth  * 32f;
-        float hh = mapHeight * 32f;
-        shapeRenderer.rect(0, 0, hw, hh);
-        shapeRenderer.end();
-        Gdx.gl.glDisable(GL20.GL_BLEND);
 
         // ── HUD (location label) ───────────────────────────────────────────
         com.badlogic.gdx.math.Matrix4 uiProj = new com.badlogic.gdx.math.Matrix4();
@@ -237,25 +240,20 @@ public class CaveScreen implements Screen {
         Gdx.gl.glEnable(GL20.GL_BLEND);
         shapeRenderer.setProjectionMatrix(uiProj);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(0.04f, 0.06f, 0.12f, 0.88f);
+        shapeRenderer.setColor(0.04f, 0.12f, 0.08f, 0.88f); // Dark forest green HUD themed bar
         shapeRenderer.rect(0, 792, 1253, 40);
         shapeRenderer.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
 
         spriteBatch.setProjectionMatrix(uiProj);
         spriteBatch.begin();
-        headerFont.setColor(new Color(0.6f, 0.8f, 1f, 1f));
-        headerFont.draw(spriteBatch, "♦  GUA MISTERIUS  ♦", 420f, 822f);
+        headerFont.setColor(new Color(0.7f, 1.0f, 0.8f, 1f));
+        headerFont.draw(spriteBatch, "♦  OUTWORLD  ♦", 500f, 822f);
 
         // Draw coordinates in UI space (top left, just below HUD bar)
         font.setColor(Color.YELLOW);
         font.draw(spriteBatch, "X: " + (int)playerX + "  Y: " + (int)playerY, 20f, 770f);
         spriteBatch.end();
-
-        // ── Exit Confirm Popup ─────────────────────────────────────────────
-        if (showExitConfirm) {
-            drawExitConfirmPopup();
-        }
 
         // ── Game Menu ─────────────────────────────────────────────────────
         if (gameMenu.isOpen()) {
@@ -279,28 +277,9 @@ public class CaveScreen implements Screen {
 
     // ── Input ─────────────────────────────────────────────────────────────────
     private void handleInput(float delta) {
-        if (showExitConfirm) {
-            if (Gdx.input.justTouched()) {
-                float mx = Gdx.input.getX();
-                float my = 832f - Gdx.input.getY();
-
-                // box dimensions: boxW = 500, boxH = 200
-                // boxX = (1253 - 500) / 2 = 376.5f
-                // boxY = (832 - 200) / 2 = 316f
-                // YES button: boxX + 50f to boxX + 200f => 426.5f to 576.5f
-                // NO button: boxX + 300f to boxX + 450f => 676.5f to 826.5f
-                // Button Y: boxY + 40f to boxY + 80f => 356f to 396f
-
-                if (mx >= 426.5f && mx <= 576.5f && my >= 356f && my <= 396f) {
-                    showExitConfirm = false;
-                    game.setScreen(new OutWorldScreen(game));
-                }
-                if (mx >= 676.5f && mx <= 826.5f && my >= 356f && my <= 396f) {
-                    showExitConfirm = false;
-                    playerX = 10f; // Push player back
-                }
-            }
-            isMoving = false;
+        // Trigger battle screen at X: 289, Y: 156
+        if (Math.abs(playerX - 289f) < 15f && Math.abs(playerY - 156f) < 15f) {
+            game.setScreen(new BattleScreen(game));
             return;
         }
 
@@ -310,13 +289,6 @@ public class CaveScreen implements Screen {
         }
 
         devConsole.handleInput();
-
-        // Trigger exit cave popup
-        if (playerX <= 0f && Math.abs(playerY - 277f) < 20f) {
-            showExitConfirm = true;
-            isMoving = false;
-            return;
-        }
 
         float dx = 0, dy = 0;
         if (Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP))    { dy =  SPEED * delta; currentDirection = Direction.NORTH; }
@@ -334,15 +306,13 @@ public class CaveScreen implements Screen {
     private void handleMenuAction(GameMenu.Action action) {
         switch (action) {
             case SAVE:
-                GameSave.save("cave", playerX, playerY, game.getGold(), game.getGems());
+                GameSave.save("outworld", playerX, playerY, game.getGold(), game.getGems());
                 showSaveToast = true;
                 saveToastTimer = 2.5f;
                 break;
             case EXIT:
                 Gdx.app.exit();
                 break;
-            case CONTINUE:
-            case NONE:
             default:
                 break;
         }
@@ -429,49 +399,6 @@ public class CaveScreen implements Screen {
         spriteBatch.begin();
         font.setColor(1f, 1f, 1f, alpha);
         font.draw(spriteBatch, "✓  Game Tersimpan!", 470f, 63f);
-        spriteBatch.end();
-    }
-
-    private void drawExitConfirmPopup() {
-        float boxW = 500f;
-        float boxH = 200f;
-        float boxX = (1253f - boxW) / 2f;
-        float boxY = (832f - boxH) / 2f;
-
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        shapeRenderer.setProjectionMatrix(uiCamera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(16f / 255f, 22f / 255f, 38f / 255f, 0.98f);
-        shapeRenderer.rect(boxX, boxY, boxW, boxH);
-        shapeRenderer.setColor(Color.YELLOW);
-        shapeRenderer.rect(boxX, boxY, boxW, 3f);
-        shapeRenderer.rect(boxX, boxY + boxH - 3f, boxW, 3f);
-        shapeRenderer.rect(boxX, boxY, 3f, boxH);
-        shapeRenderer.rect(boxX + boxW - 3f, boxY, 3f, boxH);
-
-        // Hover effect on buttons
-        float mx = Gdx.input.getX();
-        float my = 832f - Gdx.input.getY();
-
-        boolean hoverYes = (mx >= boxX + 50f && mx <= boxX + 200f && my >= boxY + 40f && my <= boxY + 80f);
-        shapeRenderer.setColor(hoverYes ? new Color(0f, 0.6f, 0f, 1f) : new Color(0f, 0.4f, 0f, 1f));
-        shapeRenderer.rect(boxX + 50f, boxY + 40f, 150f, 40f);
-
-        boolean hoverNo = (mx >= boxX + boxW - 200f && mx <= boxX + boxW - 50f && my >= boxY + 40f && my <= boxY + 80f);
-        shapeRenderer.setColor(hoverNo ? new Color(0.7f, 0f, 0f, 1f) : new Color(0.5f, 0f, 0f, 1f));
-        shapeRenderer.rect(boxX + boxW - 200f, boxY + 40f, 150f, 40f);
-
-        shapeRenderer.end();
-        Gdx.gl.glDisable(GL20.GL_BLEND);
-
-        spriteBatch.setProjectionMatrix(uiCamera.combined);
-        spriteBatch.begin();
-        headerFont.setColor(Color.WHITE);
-        headerFont.draw(spriteBatch, "Coba pergi keluar Goa?", boxX, boxY + boxH - 50f, boxW, com.badlogic.gdx.utils.Align.center, false);
-
-        font.setColor(Color.WHITE);
-        font.draw(spriteBatch, "Yes", boxX + 50f, boxY + 65f, 150f, com.badlogic.gdx.utils.Align.center, false);
-        font.draw(spriteBatch, "No", boxX + boxW - 200f, boxY + 65f, 150f, com.badlogic.gdx.utils.Align.center, false);
         spriteBatch.end();
     }
 
