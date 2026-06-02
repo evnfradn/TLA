@@ -118,6 +118,33 @@ public class ExplorationScreen implements Screen {
     private Array<FloatingText> floatingTexts = new Array<>();
     private Array<String> completedBannersShown = new Array<>();
 
+    // ── Window Bang Cutscene ──────────────────────────────────────────────────
+    private enum CutsceneState {
+        NONE,
+        SITTING_DELAY,    // 2 detik setelah duduk
+        KRAKKK_SHOW,      // tampilkan kotak suara + flashbang
+        NPC_LOOK_PHASE,   // semua NPC menoleh ke jendela
+        WALK_TO_WINDOW,   // player digerakkan user ke jendela
+        WINDOW_POPUP,     // popup "apakah anda ingin melihat?"
+        FADE_TO_CAVE      // transisi putih ke cave
+    }
+    private CutsceneState cutsceneState = CutsceneState.NONE;
+    private float cutsceneTimer    = 0f;
+    private float flashbangAlpha   = 0f; // efek silau putih (0=transparan, 1=putih penuh)
+    private float fadeOutAlpha     = 0f; // white screen fade untuk transisi ke cave
+    private boolean krakkkBoxShown = false;
+
+    // Posisi jendela di kelas (sisi kiri, area tirai)
+    private static final float WINDOW_TARGET_X = 64f;
+    private static final float WINDOW_TARGET_Y = 130f;
+    private static final float WINDOW_REACH_DIST = 80f;
+
+    // ── Game Menu (Pause) ────────────────────────────────────────────────────
+    private GameMenu gameMenu;
+    private BitmapFont menuTitleFont;
+    private boolean showSaveToast = false;
+    private float   saveToastTimer = 0f;
+
     public ExplorationScreen(TheLastAncestorsGame game) {
         this.game = game;
     }
@@ -173,6 +200,11 @@ public class ExplorationScreen implements Screen {
         uiCamera = new OrthographicCamera();
         uiCamera.setToOrtho(false, 1253, 832);
 
+        if (GameSave.hasSave() && "classroom".equalsIgnoreCase(GameSave.loadMap())) {
+            playerX = GameSave.loadX();
+            playerY = GameSave.loadY();
+        }
+
         // Generate retro pixel font for coordinate display and dialogue UI
         FreeTypeFontGenerator fontGenerator = new FreeTypeFontGenerator(Gdx.files.internal("Battle/PressStart2P.ttf"));
         FreeTypeFontParameter fontParameter = new FreeTypeFontParameter();
@@ -213,6 +245,17 @@ public class ExplorationScreen implements Screen {
 
         fontGenerator.dispose();
 
+        // Buat font terpisah untuk menu (ukuran lebih besar)
+        FreeTypeFontGenerator menuGen = new FreeTypeFontGenerator(Gdx.files.internal("Battle/PressStart2P.ttf"));
+        FreeTypeFontParameter menuTitleParam = new FreeTypeFontParameter();
+        menuTitleParam.size = 20; menuTitleParam.borderWidth = 2f; menuTitleParam.borderColor = Color.BLACK;
+        menuTitleFont = menuGen.generateFont(menuTitleParam);
+        FreeTypeFontParameter menuItemParam = new FreeTypeFontParameter();
+        menuItemParam.size = 12; menuItemParam.borderWidth = 1.5f; menuItemParam.borderColor = Color.BLACK;
+        BitmapFont menuItemFont = menuGen.generateFont(menuItemParam);
+        menuGen.dispose();
+        gameMenu = new GameMenu(game, menuTitleFont, menuItemFont);
+
         // Inisialisasi DevConsole dan pasang InputProcessor untuk keyTyped
         devConsole = new DevConsole();
         Gdx.input.setInputProcessor(new InputAdapter() {
@@ -236,6 +279,11 @@ public class ExplorationScreen implements Screen {
         npcs.add(new NPC("NPC 9", 227f, 35f, "NPC_School_Male_5", "up", allTextures));
         npcs.add(new NPC("NPC 10", 355f, 35f, "NPC_School_Male_6", "up", allTextures));
         npcs.add(new NPC("NPC 11", 484f, 35f, "NPC_School_Male_7", "up", allTextures));
+
+        // Preload animasi "lihat kiri" untuk semua NPC (digunakan saat event jendela)
+        for (NPC npc : npcs) {
+            npc.loadLookLeftAnimation(allTextures);
+        }
 
         // Initialize Dialogue Box Image
         dialogBoxImage = new Texture(Gdx.files.internal("Battle/Menu/Dialog_Box.png"));
@@ -310,6 +358,9 @@ public class ExplorationScreen implements Screen {
                 npc.update(delta);
             }
         }
+
+        // Update cutscene state machine
+        updateCutscene(delta);
 
         // 1. Proses input keyboard & pergerakan
         handleInput(delta);
@@ -435,6 +486,23 @@ public class ExplorationScreen implements Screen {
         float consoleOffY = camera.position.y + sh * camera.zoom / 2f;
         // Render di viewport-space dengan projection ortho terpisah
         renderConsoleInScreenSpace();
+
+        // ── Cutscene overlays (di atas segalanya, screen-space) ─────────────────
+        if (flashbangAlpha > 0f) drawFlashbang();
+        if (cutsceneState == CutsceneState.KRAKKK_SHOW
+                || cutsceneState == CutsceneState.NPC_LOOK_PHASE
+                || cutsceneState == CutsceneState.WALK_TO_WINDOW) {
+            drawKrakkkBox();
+        }
+        if (cutsceneState == CutsceneState.WINDOW_POPUP) drawWindowPopup();
+        if (fadeOutAlpha > 0f)  drawWhiteFade();
+
+        // ── Game Menu overlay ──────────────────────────────────────────
+        if (gameMenu.isOpen()) {
+            gameMenu.render(spriteBatch, shapeRenderer, delta);
+        }
+        // Save toast notification
+        if (showSaveToast) drawSaveToast(delta);
     }
 
     /** Render DevConsole dalam ruang layar penuh (bukan world-space). */
@@ -492,6 +560,38 @@ public class ExplorationScreen implements Screen {
     }
 
     private void handleInput(float delta) {
+        // ── ESC → Game Menu (bisa dibuka kapan saja kecuali saat fade ke cave) ─
+        if (cutsceneState != CutsceneState.FADE_TO_CAVE) {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+                if (isQuestUiOpen) {
+                    isQuestUiOpen = false;
+                } else {
+                    gameMenu.toggle();
+                }
+                isMoving = false;
+                return;
+            }
+        }
+
+        // ── Jika game menu terbuka, proses hanya input menu ─
+        if (gameMenu.isOpen()) {
+            GameMenu.Action action = gameMenu.handleInput();
+            switch (action) {
+                case SAVE:
+                    GameSave.save("classroom", playerX, playerY, game.getGold(), game.getGems());
+                    showSaveToast = true;
+                    saveToastTimer = 2.5f;
+                    break;
+                case EXIT:
+                    Gdx.app.exit();
+                    break;
+                default:
+                    break;
+            }
+            isMoving = false;
+            return;
+        }
+
         if (isDialogueActive) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.E) || 
                 Gdx.input.isKeyJustPressed(Input.Keys.SPACE) || 
@@ -506,12 +606,15 @@ public class ExplorationScreen implements Screen {
                     if (currentDialogueIndex >= dialogueLines.size) {
                         isDialogueActive = false;
                         currentDialogueIndex = 0;
-                        
-                        // Check if seat cutscene completed and transition to Battle
-                        Quest seatQuest = game.getQuestById("seat");
-                        if (seatQuest != null && seatQuest.isCompleted() && !game.getQuestById("learn_start").isCompleted()) {
+
+                        // Setelah semua dialogue lesson selesai → mulai cutscene window bang
+                        Quest seatQuest2 = game.getQuestById("seat");
+                        if (seatQuest2 != null && seatQuest2.isCompleted()
+                                && cutsceneState == CutsceneState.NONE) {
                             game.getQuestById("learn_start").setProgress(1);
-                            game.setScreen(new BattleScreen(game));
+                            // Mulai 2 detik penantian sebelum suara krakkkk
+                            cutsceneState = CutsceneState.SITTING_DELAY;
+                            cutsceneTimer  = 2.0f;
                         }
                     } else {
                         dialogueCharIndex = 0;
@@ -539,7 +642,41 @@ public class ExplorationScreen implements Screen {
             return;
         }
 
-        // Check seat coordinates
+        // ── Saat cutscene aktif: batasi input sesuai state ─────────────────────
+        if (cutsceneState == CutsceneState.SITTING_DELAY
+                || cutsceneState == CutsceneState.KRAKKK_SHOW
+                || cutsceneState == CutsceneState.NPC_LOOK_PHASE
+                || cutsceneState == CutsceneState.FADE_TO_CAVE) {
+            playerX = 102f; playerY = 130f;
+            currentDirection = Direction.NORTH;
+            isMoving = false;
+            return;
+        }
+
+        if (cutsceneState == CutsceneState.WINDOW_POPUP) {
+            // Proses klik tombol di popup
+            if (Gdx.input.justTouched()) {
+                float mx = Gdx.input.getX();
+                float my = 832f - Gdx.input.getY();
+                // Tombol IYA (kiri) ~ x=426-576, y=360-400
+                if (mx >= 426f && mx <= 576f && my >= 360f && my <= 400f) {
+                    // Mulai fade putih ke cave
+                    cutsceneState = CutsceneState.FADE_TO_CAVE;
+                    cutsceneTimer = 0f;
+                }
+                // Tombol TIDAK (kanan) ~ x=676-826, y=360-400
+                if (mx >= 676f && mx <= 826f && my >= 360f && my <= 400f) {
+                    // Tidak → player bebas bergerak
+                    cutsceneState = CutsceneState.NONE;
+                    // Kembalikan NPC ke arah semula
+                    for (NPC npc : npcs) npc.setLookingLeft(false);
+                }
+            }
+            isMoving = false;
+            return;
+        }
+
+        // Check seat coordinates (player sudah duduk, terkunci)
         Quest seatQuest = game.getQuestById("seat");
         if (seatQuest != null && seatQuest.isCompleted() && !seatQuest.isClaimed()) {
             playerX = 102f;
@@ -557,7 +694,11 @@ public class ExplorationScreen implements Screen {
             }
             
             if (devConsole.handleInput()) {
-                if (devConsole.consumeRestart()) game.setScreen(new ExplorationScreen(game));
+                if (devConsole.consumeRestart()) {
+                    GameSave.clear();
+                    game.initDefaultQuests();
+                    game.setScreen(new ExplorationScreen(game));
+                }
                 if (devConsole.consumeBattle()) game.setScreen(new BattleScreen(game));
             }
             return;
@@ -569,10 +710,26 @@ public class ExplorationScreen implements Screen {
             float distSeat = (float) Math.sqrt(dxSeat * dxSeat + dySeat * dySeat);
             if (distSeat < 20f) {
                 seatQuest.setProgress(1);
+                seatQuest.setClaimed(true); // Klaim otomatis
                 playerX = 102f;
                 playerY = 130f;
                 currentDirection = Direction.NORTH;
                 isMoving = false;
+
+                // Picu dialogue lesson secara otomatis
+                isQuestUiOpen = false;
+                dialogueLines.clear();
+                dialogueLines.add(new DialogueLine("Deo", "Akhirnya aku kembali ke tempat dudukku. Capek juga berjalan keliling kelas."));
+                dialogueLines.add(new DialogueLine("Teacher", "Baik anak-anak, sekarang semua sudah berada di bangku masing-masing."));
+                dialogueLines.add(new DialogueLine("Teacher", "Mari kita mulai pembelajaran hari ini. Hari ini kita akan membahas tentang legenda 'The Last Ancestors'..."));
+                dialogueLines.add(new DialogueLine("Teacher", "Yaitu leluhur agung kita yang mengorbankan diri mereka untuk menyegel kekuatan kegelapan."));
+                dialogueLines.add(new DialogueLine("NPC 7", "Pak Guru, apakah segel itu masih aman hingga sekarang?"));
+                dialogueLines.add(new DialogueLine("Teacher", "Tentu saja, segel itu dijaga oleh kuil suci di..."));
+
+                isDialogueActive = true;
+                currentDialogueIndex = 0;
+                dialogueCharIndex = 0;
+                dialogueTypingTimer = 0f;
                 return;
             }
         }
@@ -647,6 +804,8 @@ public class ExplorationScreen implements Screen {
                 playerY = devConsole.getTeleportY();
             }
             if (devConsole.consumeRestart()) {
+                GameSave.clear();
+                game.initDefaultQuests();
                 game.setScreen(new ExplorationScreen(game));
             }
             if (devConsole.consumeBattle()) {
@@ -1596,7 +1755,196 @@ public class ExplorationScreen implements Screen {
         if (questDescFont != null) {
             questDescFont.dispose();
         }
+        if (menuTitleFont != null) {
+            menuTitleFont.dispose();
+        }
     }
+
+    // ── Update Cutscene State Machine ────────────────────────────────────────
+    private void updateCutscene(float delta) {
+        // Selalu decel flashbang alpha jika ada
+        if (flashbangAlpha > 0f) {
+            flashbangAlpha = Math.max(0f, flashbangAlpha - delta * 0.8f);
+        }
+
+        switch (cutsceneState) {
+            case SITTING_DELAY:
+                cutsceneTimer -= delta;
+                if (cutsceneTimer <= 0f) {
+                    // Jeda 2 detik selesai -> Picu bunyi keras "krakkkk" & flashbang
+                    cutsceneState = CutsceneState.KRAKKK_SHOW;
+                    flashbangAlpha = 1f; // full white bright flashbang
+                    krakkkBoxShown = true;
+                    cutsceneTimer = 2.5f; // tampilkan box selama 2.5 detik
+                }
+                break;
+
+            case KRAKKK_SHOW:
+                cutsceneTimer -= delta;
+                if (cutsceneTimer <= 0f) {
+                    // Bunyi keras selesai -> Semua NPC reflek melihat ke jendela
+                    cutsceneState = CutsceneState.NPC_LOOK_PHASE;
+                    for (NPC npc : npcs) {
+                        npc.setLookingLeft(true);
+                    }
+                    cutsceneTimer = 1.0f; // Jeda 1 detik agar efek menoleh terasa
+                }
+                break;
+
+            case NPC_LOOK_PHASE:
+                cutsceneTimer -= delta;
+                if (cutsceneTimer <= 0f) {
+                    // NPC selesai menoleh -> User mulai mengendalikan player berjalan ke jendela
+                    cutsceneState = CutsceneState.WALK_TO_WINDOW;
+                }
+                break;
+
+            case WALK_TO_WINDOW:
+                // Cek apakah player sudah mendekati jendela di sebelah kiri
+                // Posisi jendela: WINDOW_TARGET_X = 64f, WINDOW_TARGET_Y = 130f
+                float dx = playerX - WINDOW_TARGET_X;
+                float dy = playerY - WINDOW_TARGET_Y;
+                float dist = (float) Math.sqrt(dx * dx + dy * dy);
+                if (dist < WINDOW_REACH_DIST) {
+                    // Sampai di jendela -> Muncul popup pilihan melihat
+                    cutsceneState = CutsceneState.WINDOW_POPUP;
+                }
+                break;
+
+            case FADE_TO_CAVE:
+                fadeOutAlpha = Math.min(1f, fadeOutAlpha + delta * 1.5f);
+                if (fadeOutAlpha >= 1f) {
+                    // Pindah ke Cave_Map.tmx dengan screen baru
+                    game.setScreen(new CaveScreen(game));
+                }
+                break;
+
+            case NONE:
+            case WINDOW_POPUP:
+            default:
+                break;
+        }
+    }
+
+    // ── Helper Drawing untuk Cutscene & UI Tambahan ───────────────────────────
+    private void drawFlashbang() {
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(1f, 1f, 1f, flashbangAlpha);
+        shapeRenderer.rect(0, 0, 1253, 832);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    private void drawKrakkkBox() {
+        // Tampilkan kotak box dialog di bagian bawah berisi suara krakkk
+        float boxX = 150f;
+        float boxY = 50f;
+        float boxW = 1253f - 300f;
+        float boxH = 90f;
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(16f / 255f, 22f / 255f, 38f / 255f, 0.95f);
+        shapeRenderer.rect(boxX, boxY, boxW, boxH);
+        shapeRenderer.setColor(Color.RED); // border merah melambangkan ketegangan/suara keras
+        shapeRenderer.rect(boxX, boxY, boxW, 3f);
+        shapeRenderer.rect(boxX, boxY + boxH - 3f, boxW, 3f);
+        shapeRenderer.rect(boxX, boxY, 3f, boxH);
+        shapeRenderer.rect(boxX + boxW - 3f, boxY, 3f, boxH);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+        spriteBatch.setProjectionMatrix(uiCamera.combined);
+        spriteBatch.begin();
+        questHeaderFont.setColor(Color.RED);
+        questHeaderFont.draw(spriteBatch, "* KRAKKKK!!! *", boxX, boxY + 62f, boxW, Align.center, false);
+        font.setColor(Color.LIGHT_GRAY);
+        font.draw(spriteBatch, "(Suara keras yang sangat mengagetkan terdengar dari arah jendela!)", boxX, boxY + 30f, boxW, Align.center, false);
+        spriteBatch.end();
+    }
+
+    private void drawWindowPopup() {
+        // Dialog popup "Apakah anda ingin melihat?"
+        float boxW = 500f;
+        float boxH = 200f;
+        float boxX = (1253f - boxW) / 2f;
+        float boxY = (832f - boxH) / 2f;
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(16f / 255f, 22f / 255f, 38f / 255f, 0.98f);
+        shapeRenderer.rect(boxX, boxY, boxW, boxH);
+        shapeRenderer.setColor(Color.YELLOW);
+        shapeRenderer.rect(boxX, boxY, boxW, 3f);
+        shapeRenderer.rect(boxX, boxY + boxH - 3f, boxW, 3f);
+        shapeRenderer.rect(boxX, boxY, 3f, boxH);
+        shapeRenderer.rect(boxX + boxW - 3f, boxY, 3f, boxH);
+
+        // Hover effect pada tombol
+        float mx = Gdx.input.getX();
+        float my = 832f - Gdx.input.getY();
+
+        // Tombol IYA (kiri) ~ x=426-576, y=360-400
+        boolean hoverIya = (mx >= boxX + 50f && mx <= boxX + 200f && my >= boxY + 40f && my <= boxY + 80f);
+        shapeRenderer.setColor(hoverIya ? new Color(0f, 0.6f, 0f, 1f) : new Color(0f, 0.4f, 0f, 1f));
+        shapeRenderer.rect(boxX + 50f, boxY + 40f, 150f, 40f);
+
+        // Tombol TIDAK (kanan) ~ x=676-826, y=360-400
+        boolean hoverTidak = (mx >= boxX + boxW - 200f && mx <= boxX + boxW - 50f && my >= boxY + 40f && my <= boxY + 80f);
+        shapeRenderer.setColor(hoverTidak ? new Color(0.7f, 0f, 0f, 1f) : new Color(0.5f, 0f, 0f, 1f));
+        shapeRenderer.rect(boxX + boxW - 200f, boxY + 40f, 150f, 40f);
+
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+        spriteBatch.setProjectionMatrix(uiCamera.combined);
+        spriteBatch.begin();
+        questHeaderFont.setColor(Color.WHITE);
+        questHeaderFont.draw(spriteBatch, "Apakah anda ingin melihat?", boxX, boxY + boxH - 50f, boxW, Align.center, false);
+
+        font.setColor(Color.WHITE);
+        font.draw(spriteBatch, "IYA", boxX + 50f, boxY + 65f, 150f, Align.center, false);
+        font.draw(spriteBatch, "TIDAK", boxX + boxW - 200f, boxY + 65f, 150f, Align.center, false);
+        spriteBatch.end();
+    }
+
+    private void drawWhiteFade() {
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(1f, 1f, 1f, fadeOutAlpha);
+        shapeRenderer.rect(0, 0, 1253, 832);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    private void drawSaveToast(float delta) {
+        saveToastTimer -= delta;
+        if (saveToastTimer <= 0) {
+            showSaveToast = false;
+            return;
+        }
+
+        float alpha = Math.min(1f, saveToastTimer);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.04f, 0.18f, 0.04f, 0.9f * alpha);
+        shapeRenderer.rect(426, 30, 400, 50);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+        spriteBatch.setProjectionMatrix(uiCamera.combined);
+        spriteBatch.begin();
+        font.setColor(1f, 1f, 1f, alpha);
+        font.draw(spriteBatch, "✓  Game Tersimpan!", 470f, 63f);
+        spriteBatch.end();
+    }
+
 
     private static class DialogueLine {
         final String speaker;

@@ -13,8 +13,20 @@ public class TheLastAncestorsGame extends Game {
     @Override
     public void create() {
         initDefaultQuests();
-        // Set ExplorationScreen sebagai layar awal saat game pertama kali dijalankan
-        setScreen(new ExplorationScreen(this));
+        // Load save game jika tersedia
+        if (GameSave.hasSave()) {
+            this.gold = GameSave.loadGold();
+            this.gems = GameSave.loadGems();
+            String mapId = GameSave.loadMap();
+            if ("cave".equalsIgnoreCase(mapId)) {
+                setScreen(new CaveScreen(this));
+            } else {
+                setScreen(new ExplorationScreen(this));
+            }
+        } else {
+            // Set ExplorationScreen sebagai layar awal saat game pertama kali dijalankan
+            setScreen(new ExplorationScreen(this));
+        }
     }
 
     public int getGold() { return gold; }
