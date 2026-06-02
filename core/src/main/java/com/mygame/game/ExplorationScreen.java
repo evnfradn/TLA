@@ -30,6 +30,7 @@ import com.badlogic.gdx.utils.Align;
 public class ExplorationScreen implements Screen {
 
     private final TheLastAncestorsGame game;
+    private boolean isDisposed = false;
 
     private SpriteBatch spriteBatch;
     private ShapeRenderer shapeRenderer;
@@ -257,7 +258,7 @@ public class ExplorationScreen implements Screen {
         gameMenu = new GameMenu(game, menuTitleFont, menuItemFont);
 
         // Inisialisasi DevConsole dan pasang InputProcessor untuk keyTyped
-        devConsole = new DevConsole();
+        devConsole = DevConsole.getInstance();
         Gdx.input.setInputProcessor(new InputAdapter() {
             @Override
             public boolean keyTyped(char character) {
@@ -335,6 +336,7 @@ public class ExplorationScreen implements Screen {
 
     @Override
     public void render(float delta) {
+        if (isDisposed) return;
         stateTime += delta;
 
         // Update typing effect if dialogue is active
@@ -364,6 +366,7 @@ public class ExplorationScreen implements Screen {
 
         // 1. Proses input keyboard & pergerakan
         handleInput(delta);
+        if (isDisposed) return;
 
         // 2. Bersihkan screen
         ScreenUtils.clear(0.1f, 0.1f, 0.1f, 1f);
@@ -508,6 +511,11 @@ public class ExplorationScreen implements Screen {
             renderHitboxOverlay();
         }
 
+        // ── Render collision debug overlay ────────────────────────────
+        if (devConsole.isShowCollision()) {
+            renderCollisionOverlay();
+        }
+
         // ── Render FPS monitor ────────────────────────────────────────
         if (devConsole.isShowFps()) {
             renderFpsOverlay();
@@ -589,6 +597,26 @@ public class ExplorationScreen implements Screen {
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }
 
+    /** Render kotak collision layer map (merah semi-transparan). */
+    private void renderCollisionOverlay() {
+        if (collisionLayer == null) return;
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(camera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(1f, 0f, 0f, 0.35f);
+
+        for (int tx = 0; tx < mapWidth; tx++) {
+            for (int ty = 0; ty < mapHeight; ty++) {
+                if (collisionLayer.getCell(tx, ty) != null) {
+                    shapeRenderer.rect(tx * 32f, ty * 32f, 32f, 32f);
+                }
+            }
+        }
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
     /** Render overlay FPS & memory di pojok kanan atas world-space. */
     private void renderFpsOverlay() {
         float viewWidth = viewport.getWorldWidth() * camera.zoom;
@@ -607,6 +635,33 @@ public class ExplorationScreen implements Screen {
     }
 
     private void handleInput(float delta) {
+        // ── DevConsole input (prioritas tertinggi, bisa dibuka di mana saja & kapan saja) ──
+        if (devConsole.handleInput()) {
+            if (devConsole.consumeReload()) {
+                game.setScreen(new ExplorationScreen(game));
+                this.dispose();
+                return;
+            }
+            if (devConsole.consumeTeleport()) {
+                playerX = devConsole.getTeleportX();
+                playerY = devConsole.getTeleportY();
+            }
+            if (devConsole.consumeRestart()) {
+                GameSave.clear();
+                game.initDefaultQuests();
+                game.setScreen(new ExplorationScreen(game));
+                this.dispose();
+            }
+            if (devConsole.consumeBattle()) {
+                game.setScreen(new BattleScreen(game));
+                this.dispose();
+            }
+            if (devConsole.isOpen()) {
+                isMoving = false;
+                return;
+            }
+        }
+
         // ── ESC → Game Menu (bisa dibuka kapan saja kecuali saat fade ke cave) ─
         if (cutsceneState != CutsceneState.FADE_TO_CAVE) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
@@ -843,24 +898,7 @@ public class ExplorationScreen implements Screen {
             }
         }
 
-        // ── DevConsole input (prioritas tertinggi jika open) ────────────────────
-        if (devConsole.handleInput()) {
-            // Konsumsi cheat requests dari console
-            if (devConsole.consumeTeleport()) {
-                playerX = devConsole.getTeleportX();
-                playerY = devConsole.getTeleportY();
-            }
-            if (devConsole.consumeRestart()) {
-                GameSave.clear();
-                game.initDefaultQuests();
-                game.setScreen(new ExplorationScreen(game));
-            }
-            if (devConsole.consumeBattle()) {
-                game.setScreen(new BattleScreen(game));
-            }
-            if (devConsole.isOpen())
-                return; // Kunci input game saat console terbuka
-        }
+
 
         float dx = 0f;
         float dy = 0f;
@@ -1805,6 +1843,7 @@ public class ExplorationScreen implements Screen {
         if (menuTitleFont != null) {
             menuTitleFont.dispose();
         }
+        isDisposed = true;
     }
 
     // ── Update Cutscene State Machine ────────────────────────────────────────

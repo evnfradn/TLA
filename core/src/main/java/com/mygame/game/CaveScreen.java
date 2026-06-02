@@ -34,6 +34,7 @@ public class CaveScreen implements Screen {
 
     // ── Referensi utama ──────────────────────────────────────────────────────
     private final TheLastAncestorsGame game;
+    private boolean isDisposed = false;
 
     // ── Rendering ────────────────────────────────────────────────────────────
     private SpriteBatch     spriteBatch;
@@ -76,7 +77,9 @@ public class CaveScreen implements Screen {
     private GameMenu gameMenu;
 
     // ── Fade-in dari transition ───────────────────────────────────────────────
-    private float fadeInAlpha = 1f; // starts white, fades to 0
+    private float fadeInAlpha = 1f; // starts black, fades to 0
+    private float fadeOutAlpha = 0f; // starts 0, fades to black
+    private boolean isFadingOut = false;
     private boolean showExitConfirm = false;
 
     // ── Save toast ────────────────────────────────────────────────────────────
@@ -146,7 +149,7 @@ public class CaveScreen implements Screen {
         gameMenu = new GameMenu(game, headerFont, font);
 
         // Dev console
-        devConsole = new DevConsole();
+        devConsole = DevConsole.getInstance();
         Gdx.input.setInputProcessor(new com.badlogic.gdx.InputAdapter() {
             @Override public boolean keyTyped(char c) { return devConsole.keyTyped(c); }
         });
@@ -182,10 +185,21 @@ public class CaveScreen implements Screen {
     // =========================================================================
     @Override
     public void render(float delta) {
+        if (isDisposed) return;
         stateTime += delta;
+        devConsole.update(delta);
 
         // ── Fade-in ────────────────────────────────────────────────────────
         if (fadeInAlpha > 0f) fadeInAlpha = Math.max(0f, fadeInAlpha - delta * 1.5f);
+
+        // ── Fade-out ───────────────────────────────────────────────────────
+        if (isFadingOut) {
+            fadeOutAlpha = Math.min(1f, fadeOutAlpha + delta * 1.5f);
+            if (fadeOutAlpha >= 1f) {
+                game.setScreen(new OutWorldScreen(game));
+                return;
+            }
+        }
 
         // ── Input ──────────────────────────────────────────────────────────
         if (gameMenu.isOpen()) {
@@ -194,16 +208,19 @@ public class CaveScreen implements Screen {
         } else {
             handleInput(delta);
         }
+        if (isDisposed) return;
 
         // ── Clear & render map ─────────────────────────────────────────────
         ScreenUtils.clear(0.05f, 0.04f, 0.08f, 1f);
         updateCamera();
         renderer.setView(camera);
 
-        // Pass 1: Render background layers (Ground & Path)
+        boolean wallOnTop = isWallOnTop();
+
+        // Pass 1: Render background layers underneath player
         if (groundLayer != null) groundLayer.setVisible(true);
         if (pathLayer != null) pathLayer.setVisible(true);
-        if (wallLayer != null) wallLayer.setVisible(false);
+        if (wallLayer != null) wallLayer.setVisible(!wallOnTop);
         if (collisionLayer != null) collisionLayer.setVisible(false);
         renderer.render();
 
@@ -213,11 +230,13 @@ public class CaveScreen implements Screen {
         spriteBatch.draw(getPlayerFrame(), playerX, playerY, 84f, 84f);
         spriteBatch.end();
 
-        // Pass 2: Render foreground layer (Wall) on top of the player
-        if (groundLayer != null) groundLayer.setVisible(false);
-        if (pathLayer != null) pathLayer.setVisible(false);
-        if (wallLayer != null) wallLayer.setVisible(true);
-        renderer.render();
+        // Pass 2: Render Wall layer on top of player if it is on top
+        if (wallOnTop) {
+            if (groundLayer != null) groundLayer.setVisible(false);
+            if (pathLayer != null) pathLayer.setVisible(false);
+            if (wallLayer != null) wallLayer.setVisible(true);
+            renderer.render();
+        }
 
         // ── Cave darkness overlay ──────────────────────────────────────────
         Gdx.gl.glEnable(GL20.GL_BLEND);
@@ -265,20 +284,76 @@ public class CaveScreen implements Screen {
         // ── Save toast ────────────────────────────────────────────────────
         if (showSaveToast) drawSaveToast(delta);
 
-        // ── White fade-in ─────────────────────────────────────────────────
+        // ── Black fade-in ─────────────────────────────────────────────────
         if (fadeInAlpha > 0f) {
             Gdx.gl.glEnable(GL20.GL_BLEND);
             shapeRenderer.setProjectionMatrix(uiProj);
             shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-            shapeRenderer.setColor(1f, 1f, 1f, fadeInAlpha);
+            shapeRenderer.setColor(0f, 0f, 0f, fadeInAlpha);
             shapeRenderer.rect(0, 0, 1253, 832);
             shapeRenderer.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
         }
+
+        // ── Render hitbox debug overlay ───────────────────────────────
+        if (devConsole.isShowHitbox()) {
+            renderHitboxOverlay();
+        }
+
+        // ── Render collision debug overlay ────────────────────────────
+        if (devConsole.isShowCollision()) {
+            renderCollisionOverlay();
+        }
+
+        // ── Black fade-out ─────────────────────────────────────────────────
+        if (isFadingOut) {
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            shapeRenderer.setProjectionMatrix(uiProj);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            shapeRenderer.setColor(0f, 0f, 0f, fadeOutAlpha);
+            shapeRenderer.rect(0, 0, 1253, 832);
+            shapeRenderer.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+        }
+
+        // ── Render DevConsole UI (screen-space) ───────────────────────
+        renderConsoleInScreenSpace();
     }
 
     // ── Input ─────────────────────────────────────────────────────────────────
     private void handleInput(float delta) {
+        // ── DevConsole input (prioritas tertinggi, bisa dibuka di mana saja & kapan saja) ──
+        if (devConsole.handleInput()) {
+            if (devConsole.consumeReload()) {
+                game.setScreen(new CaveScreen(game));
+                this.dispose();
+                return;
+            }
+            if (devConsole.consumeTeleport()) {
+                playerX = devConsole.getTeleportX();
+                playerY = devConsole.getTeleportY();
+            }
+            if (devConsole.consumeRestart()) {
+                GameSave.clear();
+                game.initDefaultQuests();
+                game.setScreen(new ExplorationScreen(game));
+                this.dispose();
+            }
+            if (devConsole.consumeBattle()) {
+                game.setScreen(new BattleScreen(game));
+                this.dispose();
+            }
+            if (devConsole.isOpen()) {
+                isMoving = false;
+                return;
+            }
+        }
+
+        if (isFadingOut) {
+            isMoving = false;
+            return;
+        }
+
         if (showExitConfirm) {
             if (Gdx.input.justTouched()) {
                 float mx = Gdx.input.getX();
@@ -293,7 +368,7 @@ public class CaveScreen implements Screen {
 
                 if (mx >= 426.5f && mx <= 576.5f && my >= 356f && my <= 396f) {
                     showExitConfirm = false;
-                    game.setScreen(new OutWorldScreen(game));
+                    isFadingOut = true;
                 }
                 if (mx >= 676.5f && mx <= 826.5f && my >= 356f && my <= 396f) {
                     showExitConfirm = false;
@@ -309,8 +384,6 @@ public class CaveScreen implements Screen {
             return;
         }
 
-        devConsole.handleInput();
-
         // Trigger exit cave popup
         if (playerX <= 0f && Math.abs(playerY - 277f) < 20f) {
             showExitConfirm = true;
@@ -324,10 +397,18 @@ public class CaveScreen implements Screen {
         if (Gdx.input.isKeyPressed(Input.Keys.D) || Gdx.input.isKeyPressed(Input.Keys.RIGHT))  { dx =  SPEED * delta; currentDirection = Direction.EAST;  }
         if (Gdx.input.isKeyPressed(Input.Keys.A) || Gdx.input.isKeyPressed(Input.Keys.LEFT))   { dx = -SPEED * delta; currentDirection = Direction.WEST;  }
 
+        dx *= devConsole.getSpeedMulti();
+        dy *= devConsole.getSpeedMulti();
+
         isMoving = (dx != 0 || dy != 0);
         if (isMoving) {
-            if (!isColliding(playerX + dx, playerY)) playerX += dx;
-            if (!isColliding(playerX, playerY + dy)) playerY += dy;
+            if (devConsole.isNoClip()) {
+                playerX += dx;
+                playerY += dy;
+            } else {
+                if (!isColliding(playerX + dx, playerY)) playerX += dx;
+                if (!isColliding(playerX, playerY + dy)) playerY += dy;
+            }
         }
     }
 
@@ -475,6 +556,76 @@ public class CaveScreen implements Screen {
         spriteBatch.end();
     }
 
+    /** Render kotak hitbox / collision player di atas map. */
+    private void renderHitboxOverlay() {
+        float colWidth = 12f;
+        float colHeight = 24f;
+        float offsetX = (84f - colWidth) / 2f;
+        float offsetY = 4f;
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(camera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        shapeRenderer.setColor(0f, 1f, 0f, 1f);
+        shapeRenderer.rect(playerX + offsetX, playerY + offsetY, colWidth, colHeight);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    /** Render kotak collision layer map (merah semi-transparan). */
+    private void renderCollisionOverlay() {
+        if (collisionLayer == null) return;
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.setProjectionMatrix(camera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(1f, 0f, 0f, 0.35f);
+
+        for (int tx = 0; tx < mapWidth; tx++) {
+            for (int ty = 0; ty < mapHeight; ty++) {
+                if (collisionLayer.getCell(tx, ty) != null) {
+                    shapeRenderer.rect(tx * 32f, ty * 32f, 32f, 32f);
+                }
+            }
+        }
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    private boolean isWallOnTop() {
+        // Y: 515 s.d. 444
+        if (playerY >= 444f && playerY <= 515f) return true;
+        // Y: 412
+        if (Math.abs(playerY - 412f) < 4f) return true;
+        // Y: 188
+        if (Math.abs(playerY - 188f) < 4f) return true;
+        // Y: 184 s.d. 92
+        if (playerY >= 92f && playerY <= 184f) return true;
+
+        return false;
+    }
+
+    /** Render DevConsole dalam ruang layar penuh (bukan world-space). */
+    private void renderConsoleInScreenSpace() {
+        // Simpan projection asli
+        com.badlogic.gdx.math.Matrix4 origProj = new com.badlogic.gdx.math.Matrix4(spriteBatch.getProjectionMatrix());
+
+        // Set projection ke ukuran layar fisik agar console muncul di pojok atas layar
+        int screenW = Gdx.graphics.getWidth();
+        int screenH = Gdx.graphics.getHeight();
+        com.badlogic.gdx.math.Matrix4 screenProj = new com.badlogic.gdx.math.Matrix4();
+        screenProj.setToOrtho2D(0, 0, screenW, screenH);
+
+        spriteBatch.setProjectionMatrix(screenProj);
+        shapeRenderer.setProjectionMatrix(screenProj);
+
+        devConsole.render(spriteBatch, shapeRenderer, font, screenW, screenH);
+
+        // Kembalikan projection asli
+        spriteBatch.setProjectionMatrix(origProj);
+        shapeRenderer.setProjectionMatrix(origProj);
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     @Override public void resize(int w, int h)  { viewport.update(w, h, true); }
     @Override public void pause()  {}
@@ -490,5 +641,6 @@ public class CaveScreen implements Screen {
         for (Texture t : allTextures) t.dispose();
         if (font != null)       font.dispose();
         if (headerFont != null) headerFont.dispose();
+        isDisposed = true;
     }
 }

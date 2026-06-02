@@ -285,7 +285,7 @@ public class BattleScreen implements Screen {
         setupMainMenuClickZones();
 
         // Inisialisasi DevConsole dan pasang InputProcessor untuk keyTyped
-        devConsole = new DevConsole();
+        devConsole = DevConsole.getInstance();
         Gdx.input.setInputProcessor(new com.badlogic.gdx.InputAdapter() {
             @Override
             public boolean keyTyped(char character) {
@@ -391,6 +391,12 @@ public class BattleScreen implements Screen {
         // ── Update & konsumsi cheat DevConsole ────────────────────────
         devConsole.update(delta);
         devConsole.handleInput();
+
+        if (devConsole.consumeReload()) {
+            game.setScreen(new BattleScreen(game));
+            this.dispose();
+            return;
+        }
 
         // /heal — pulihkan HP & EN pemain ke penuh
         if (devConsole.consumeHeal()) {

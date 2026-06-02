@@ -36,6 +36,15 @@ import java.util.List;
  */
 public class DevConsole {
 
+    // ── Singleton Instance ───────────────────────────────────────────────
+    private static DevConsole instance;
+    public static DevConsole getInstance() {
+        if (instance == null) {
+            instance = new DevConsole();
+        }
+        return instance;
+    }
+
     // ── Daftar command untuk menu saran ──────────────────────────────────
     public static final String[][] COMMANDS = {
         {"/tp <x> <y>",     "Teleport ke koordinat tertentu"},
@@ -48,6 +57,8 @@ public class DevConsole {
         {"/rupture",        "Trigger transisi RUPTURE secara instan"},
         {"/cinematic",      "Trigger Cinematic Jaws letterbox overlay"},
         {"/hitbox",         "Toggle hitbox display"},
+        {"/collision",      "Toggle map collision display"},
+        {"/reload",         "Reload map, assets, dan screen saat ini"},
         {"/fps",            "Toggle FPS & memory monitor"},
         {"/log",            "Toggle action log panel"},
         {"/debug",          "Toggle SEMUA debug overlay"},
@@ -70,6 +81,7 @@ public class DevConsole {
     private boolean noClip        = false;
     private float   speedMulti    = 1.0f;
     private boolean showHitbox    = false;
+    private boolean showCollision = false;
     private boolean showFps       = false;
     private boolean showActionLog = false;
 
@@ -82,6 +94,7 @@ public class DevConsole {
     private boolean requestKillBoss   = false;
     private boolean requestSetStage   = false;
     private boolean requestBattle     = false;
+    private boolean requestReload     = false;
     private int     requestedStage    = 1;
 
     private float teleportX = 0f, teleportY = 0f;
@@ -307,6 +320,17 @@ public class DevConsole {
                 showHitbox = !showHitbox;
                 addHistory("  Hitbox Display: " + (showHitbox ? "ON" : "OFF"),
                     showHitbox ? new Color(0.4f, 1f, 0.5f, 1f) : new Color(1f, 0.5f, 0.3f, 1f));
+                break;
+
+            case "/collision":
+                showCollision = !showCollision;
+                addHistory("  Collision Layer Display: " + (showCollision ? "ON" : "OFF"),
+                    showCollision ? new Color(0.4f, 1f, 0.5f, 1f) : new Color(1f, 0.5f, 0.3f, 1f));
+                break;
+
+            case "/reload":
+                requestReload = true;
+                addHistory("  Reloading current screen and assets...", new Color(0.4f, 1f, 0.5f, 1f));
                 break;
 
             case "/fps":
@@ -555,8 +579,16 @@ public class DevConsole {
     public boolean isNoClip()        { return noClip; }
     public float   getSpeedMulti()   { return speedMulti; }
     public boolean isShowHitbox()    { return showHitbox; }
+    public boolean isShowCollision() { return showCollision; }
     public boolean isShowFps()       { return showFps; }
     public boolean isShowActionLog() { return showActionLog; }
+
+    /** Konsumsi flag sekali-pakai: reload. */
+    public boolean consumeReload() {
+        boolean v = requestReload;
+        requestReload = false;
+        return v;
+    }
 
     /** Konsumsi flag sekali-pakai: skip intro. */
     public boolean consumeSkipIntro() {
