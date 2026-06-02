@@ -397,13 +397,18 @@ public class ExplorationScreen implements Screen {
 
         java.util.List<RenderableCharacter> renderables = new java.util.ArrayList<>();
 
-        // Tambahkan Player
-        renderables.add(new RenderableCharacter(playerY, getPlayerFrame(), playerX, 84f, 84f));
+        // Tambahkan Player dengan Y-sorting default (playerSortingY = playerY)
+        float playerSortingY = playerY;
+        renderables.add(new RenderableCharacter(playerY, playerSortingY, getPlayerFrame(), playerX, 84f, 84f));
 
-        // Tambahkan semua NPC
+        // Tambahkan semua NPC (Teacher NPC digeser +70f agar tertutup meja, student NPCs default agar di atas meja)
         if (npcs != null) {
             for (NPC npc : npcs) {
-                renderables.add(new RenderableCharacter(npc.getY(), npc.getCurrentFrame(), npc.getX(), 84f, 84f));
+                float npcSortingY = npc.getY();
+                if ("Teacher".equalsIgnoreCase(npc.getName())) {
+                    npcSortingY += 70f;
+                }
+                renderables.add(new RenderableCharacter(npc.getY(), npcSortingY, npc.getCurrentFrame(), npc.getX(), 84f, 84f));
             }
         }
 
@@ -418,21 +423,59 @@ public class ExplorationScreen implements Screen {
                     if (cell != null && cell.getTile() != null) {
                         TextureRegion reg = cell.getTile().getTextureRegion();
                         if (reg != null) {
-                            // Posisi Y sorting menggunakan bagian bawah tile (ty * 32f)
-                            // sehingga tile yang lebih tinggi di layar tampak di belakang
-                            renderables.add(new RenderableCharacter(ty * 32f, reg, tx * 32f, 32f, 32f));
+                            float tileY = ty * 32f;
+                            float tileSortingY = tileY;
+
+                            if (dLayer == chairLayer) {
+                                // Murid berada di bawah kursi
+                                tileSortingY = tileY - 35f;
+                            } else {
+                                boolean isTable = (dLayer == tableLayer || dLayer == table2Layer || dLayer == table3Layer || dLayer == table4Layer);
+                                boolean isProp = (dLayer == propsLayer);
+
+                                if (isTable || isProp) {
+                                    boolean isActive = false;
+                                    if (dLayer == table2Layer || (isProp && ty >= 12 && tx < 10)) {
+                                        if (ty >= 12) {
+                                            isActive = (playerY >= 476f && playerY < 520f);
+                                        } else {
+                                            isActive = (playerY >= 284f && playerY < 320f);
+                                        }
+                                    } else if (dLayer == tableLayer || (isProp && ty >= 10 && ty <= 12)) {
+                                        isActive = (playerY >= 380f && playerY < 420f);
+                                    } else if (isProp && ty >= 7 && ty <= 9) {
+                                        isActive = (playerY >= 284f && playerY < 320f);
+                                    } else if (dLayer == table3Layer || (isProp && ty >= 4 && ty <= 6)) {
+                                        isActive = (playerY >= 188f && playerY < 220f);
+                                    } else if (dLayer == table4Layer || (isProp && ty >= 1 && ty <= 3)) {
+                                        isActive = (playerY >= 92f && playerY < 120f);
+                                    }
+
+                                    if (isActive) {
+                                        tileSortingY = playerY - 1f;
+                                    } else {
+                                        tileSortingY = playerY + 1f;
+                                    }
+
+                                    if (isProp) {
+                                        // Layer Props selalu berada di atas layer Table
+                                        tileSortingY -= 0.5f;
+                                    }
+                                }
+                            }
+
+                            renderables.add(new RenderableCharacter(tileY, tileSortingY, reg, tx * 32f, 32f, 32f));
                         }
                     }
                 }
             }
         }
 
-        // Urutkan semua renderable berdasarkan Y descending (Y besar = lebih jauh ke
-        // belakang/atas layar)
+        // Urutkan semua renderable berdasarkan sortingY descending
         renderables.sort(new java.util.Comparator<RenderableCharacter>() {
             @Override
             public int compare(RenderableCharacter a, RenderableCharacter b) {
-                return Float.compare(b.y, a.y);
+                return Float.compare(b.sortingY, a.sortingY);
             }
         });
 
@@ -1116,7 +1159,7 @@ public class ExplorationScreen implements Screen {
         float viewWidth = viewport.getWorldWidth() * camera.zoom;
         float viewHeight = viewport.getWorldHeight() * camera.zoom;
         float textX = camera.position.x - viewWidth / 2f + 15f;
-        float textY = camera.position.y + viewHeight / 2f - 15f;
+        float textY = camera.position.y + viewHeight / 2f - 50f;
 
         font.setColor(Color.YELLOW);
         font.draw(spriteBatch, "X: " + (int) playerX + "  Y: " + (int) playerY, textX, textY);
@@ -1958,13 +2001,15 @@ public class ExplorationScreen implements Screen {
 
     private static class RenderableCharacter {
         final float y;
+        final float sortingY;
         final TextureRegion frame;
         final float x;
         final float width;
         final float height;
 
-        RenderableCharacter(float y, TextureRegion frame, float x, float width, float height) {
+        RenderableCharacter(float y, float sortingY, TextureRegion frame, float x, float width, float height) {
             this.y = y;
+            this.sortingY = sortingY;
             this.frame = frame;
             this.x = x;
             this.width = width;
