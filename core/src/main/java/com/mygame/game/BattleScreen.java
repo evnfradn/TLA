@@ -149,6 +149,7 @@ public class BattleScreen implements Screen {
 
     private Array<Texture> allTextures = new Array<>();
     private boolean buttonsEnabled = true;
+    private boolean isDisposed = false;
 
     // Dev Console (cheat terminal)
     private DevConsole devConsole;
@@ -273,7 +274,8 @@ public class BattleScreen implements Screen {
         battleIconDodge = loadTexture("Skill/Evade_Icon.png");
         battleIconHeal = loadTexture("Skill/Heal_Icon.png");
         battleIconBack = loadTexture("Menu/Back_Icon.png");
-        dialogBoxImage = loadTexture("Menu/Dialog_Box.png");
+        dialogBoxImage = new Texture(Gdx.files.internal("Eksplore/UI/Dialog_Box.png"));
+        allTextures.add(dialogBoxImage);
 
         // Initialize particles
         for (int i = 0; i < particles.length; i++) {
@@ -388,6 +390,7 @@ public class BattleScreen implements Screen {
 
     @Override
     public void render(float delta) {
+        if (isDisposed) return;
         // ── Update & konsumsi cheat DevConsole ────────────────────────
         devConsole.update(delta);
         devConsole.handleInput();
@@ -1173,6 +1176,7 @@ public class BattleScreen implements Screen {
                             @Override
                             public void run() {
                                 game.setScreen(new ExplorationScreen(game));
+                                BattleScreen.this.dispose();
                             }
                         }, 3.0f);
                     }
@@ -1196,6 +1200,7 @@ public class BattleScreen implements Screen {
                 @Override
                 public void run() {
                     game.setScreen(new ExplorationScreen(game));
+                    BattleScreen.this.dispose();
                 }
             }, 1.5f);
         } else {
@@ -1994,5 +1999,6 @@ public class BattleScreen implements Screen {
         for (Texture tex : allTextures) {
             tex.dispose();
         }
+        isDisposed = true;
     }
 }

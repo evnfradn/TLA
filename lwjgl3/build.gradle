@@ -197,3 +197,8 @@ startScripts.classpath = project.tasks.jar.outputs.files
 if(enableGraalNative == 'true') {
   apply from: file("nativeimage.gradle")
 }
+
+tasks.register("checkAssets", JavaExec) {
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = "com.mygame.game.lwjgl3.AssetChecker"
+}

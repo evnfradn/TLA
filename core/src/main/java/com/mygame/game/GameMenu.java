@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -21,7 +22,7 @@ import com.badlogic.gdx.utils.Align;
  */
 public class GameMenu {
 
-    public enum Action { NONE, CONTINUE, SAVE, EXIT }
+    public enum Action { NONE, CONTINUE, OPTION, ACHIEVEMENT, TASK }
 
     // ── Referensi ────────────────────────────────────────────────────────────
     private final TheLastAncestorsGame game;
@@ -33,6 +34,11 @@ public class GameMenu {
     private int hoveredItem = -1; // item yang sedang di-hover mouse
     private float openTimer = 0f; // animasi buka menu
 
+    // ── Textures ──────────────────────────────────────────────────────────────
+    private final Texture optionTexture;
+    private final Texture achievementTexture;
+    private final Texture taskTexture;
+
     // ── Layout ───────────────────────────────────────────────────────────────
     private static final float SCREEN_W = 1253f;
     private static final float SCREEN_H = 832f;
@@ -42,7 +48,7 @@ public class GameMenu {
     private static final float BOX_X  = (SCREEN_W - BOX_W) / 2f;
     private static final float BOX_Y  = (SCREEN_H - BOX_H) / 2f;
 
-    private static final String[] LABELS = { "Continue", "Save", "Exit" };
+    private static final String[] LABELS = { "Option", "Achievement", "Task" };
     private static final float ITEM_H   = 56f;
     private static final float ITEM_GAP = 14f;
     private static final float ITEMS_START_Y = BOX_Y + 90f; // Y bawah baris pertama
@@ -61,6 +67,11 @@ public class GameMenu {
         this.game      = game;
         this.titleFont = titleFont;
         this.itemFont  = itemFont;
+
+        // Load textures
+        optionTexture = new Texture(Gdx.files.internal("Eksplore/UI/Option_UI.png"));
+        achievementTexture = new Texture(Gdx.files.internal("Eksplore/UI/Achievment_UI.png"));
+        taskTexture = new Texture(Gdx.files.internal("Eksplore/UI/Task_UI.png"));
 
         // Hitung rectangle untuk ketiga item menu
         for (int i = 0; i < 3; i++) {
@@ -105,12 +116,11 @@ public class GameMenu {
             if (itemRects[i].contains(mx, my)) {
                 switch (i) {
                     case 0:
-                        close();
-                        return Action.CONTINUE;
+                        return Action.OPTION;
                     case 1:
-                        return Action.SAVE;
+                        return Action.ACHIEVEMENT;
                     case 2:
-                        return Action.EXIT;
+                        return Action.TASK;
                     default:
                         return Action.NONE;
                 }
@@ -177,35 +187,9 @@ public class GameMenu {
         shape.rect(bx + 20f, titleLineY, bw - 40f, 1.5f);
         shape.end();
 
-        // ── Item menu ─────────────────────────────────────────────────────────
-        for (int i = 0; i < 3; i++) {
-            Rectangle r = itemRects[i];
-            boolean hovered = (hoveredItem == i);
-            Color bg = (i == 2) ? (hovered ? COL_EXIT_H : COL_EXIT)
-                                 : (hovered ? COL_HOVER  : COL_NORMAL);
-            shape.begin(ShapeRenderer.ShapeType.Filled);
-            shape.setColor(bg);
-            shape.rect(r.x, r.y, r.width, r.height);
-            shape.end();
-
-            // Highlight line di atas tombol (gloss)
-            shape.begin(ShapeRenderer.ShapeType.Filled);
-            shape.setColor(1f, 1f, 1f, 0.08f);
-            shape.rect(r.x, r.y + r.height - 3f, r.width, 3f);
-            shape.end();
-
-            // Border tipis gold jika di-hover
-            if (hovered) {
-                shape.begin(ShapeRenderer.ShapeType.Line);
-                shape.setColor(COL_BORDER);
-                shape.rect(r.x, r.y, r.width, r.height);
-                shape.end();
-            }
-        }
-
+        // ── Item menu (Gambar tekstur) ───────────────────────────────────────
         Gdx.gl.glDisable(GL20.GL_BLEND);
 
-        // ── Teks ─────────────────────────────────────────────────────────────
         batch.setProjectionMatrix(uiProj);
         batch.begin();
 
@@ -217,16 +201,30 @@ public class GameMenu {
         itemFont.setColor(0.6f, 0.6f, 0.7f, 1f);
         itemFont.draw(batch, "— GAME PAUSED —", bx, by + bh - 46f, bw, Align.center, false);
 
-        // Label item
+        // Render tombol menu menggunakan aset tekstur dengan efek hover premium
         for (int i = 0; i < 3; i++) {
             Rectangle r = itemRects[i];
             boolean hovered = (hoveredItem == i);
-            if (i == 2) {
-                itemFont.setColor(hovered ? Color.WHITE : new Color(1f, 0.6f, 0.6f, 1f));
+            Texture tex = (i == 0) ? optionTexture : ((i == 1) ? achievementTexture : taskTexture);
+
+            if (hovered) {
+                // Perbesaran skala 1.05x dari pusat tombol dan sedikit tint kuning
+                float newW = r.width * 1.05f;
+                float newH = r.height * 1.05f;
+                float newX = r.x - (newW - r.width) / 2f;
+                float newY = r.y - (newH - r.height) / 2f;
+
+                batch.setColor(1f, 1f, 0.8f, 1f);
+                batch.draw(tex, newX, newY, newW, newH);
+                batch.setColor(Color.WHITE);
+
+                itemFont.setColor(Color.YELLOW);
+                itemFont.draw(batch, LABELS[i], newX, newY + newH - (newH - r.height)/2f - 16f, newW, Align.center, false);
             } else {
-                itemFont.setColor(hovered ? Color.YELLOW : Color.WHITE);
+                batch.draw(tex, r.x, r.y, r.width, r.height);
+                itemFont.setColor(Color.WHITE);
+                itemFont.draw(batch, LABELS[i], r.x, r.y + r.height - 16f, r.width, Align.center, false);
             }
-            itemFont.draw(batch, LABELS[i], r.x, r.y + r.height - 16f, r.width, Align.center, false);
         }
 
         batch.end();
@@ -234,6 +232,8 @@ public class GameMenu {
 
     /** Dispose font yang dibuat oleh GameMenu ini sendiri (bukan yg diinjeksi dari luar). */
     public void dispose() {
-        // Font dikelola oleh screen pemilik — tidak di-dispose di sini.
+        if (optionTexture != null) optionTexture.dispose();
+        if (achievementTexture != null) achievementTexture.dispose();
+        if (taskTexture != null) taskTexture.dispose();
     }
 }

@@ -90,6 +90,9 @@ public class ExplorationScreen implements Screen {
     private int dialogueCharIndex = 0;
     private static final float TYPING_SPEED = 0.03f;
     private Texture dialogBoxImage;
+    private Texture checkBoxYesTexture;
+    private Texture checkBoxNoTexture;
+    private boolean showOptionConfirm = false;
     private Animation<TextureRegion> teacherLeftAnimation;
     private BitmapFont dialogueFont;
     private BitmapFont nameFont;
@@ -287,8 +290,13 @@ public class ExplorationScreen implements Screen {
         }
 
         // Initialize Dialogue Box Image
-        dialogBoxImage = new Texture(Gdx.files.internal("Battle/Menu/Dialog_Box.png"));
+        dialogBoxImage = new Texture(Gdx.files.internal("Eksplore/UI/Dialog_Box.png"));
         allTextures.add(dialogBoxImage);
+
+        checkBoxYesTexture = new Texture(Gdx.files.internal("Eksplore/UI/Check_Box_Yes.png"));
+        checkBoxNoTexture = new Texture(Gdx.files.internal("Eksplore/UI/Check_Box_No.png"));
+        allTextures.add(checkBoxYesTexture);
+        allTextures.add(checkBoxNoTexture);
 
         // Initialize Dialogue Lines
         dialogueLines = new Array<>();
@@ -550,6 +558,7 @@ public class ExplorationScreen implements Screen {
             drawKrakkkBox();
         }
         if (cutsceneState == CutsceneState.WINDOW_POPUP) drawWindowPopup();
+        if (showOptionConfirm) drawOptionConfirmPopup();
         if (fadeOutAlpha > 0f)  drawWhiteFade();
 
         // ── Game Menu overlay ──────────────────────────────────────────
@@ -651,10 +660,12 @@ public class ExplorationScreen implements Screen {
                 game.initDefaultQuests();
                 game.setScreen(new ExplorationScreen(game));
                 this.dispose();
+                return;
             }
             if (devConsole.consumeBattle()) {
                 game.setScreen(new BattleScreen(game));
                 this.dispose();
+                return;
             }
             if (devConsole.isOpen()) {
                 isMoving = false;
@@ -679,13 +690,19 @@ public class ExplorationScreen implements Screen {
         if (gameMenu.isOpen()) {
             GameMenu.Action action = gameMenu.handleInput();
             switch (action) {
-                case SAVE:
-                    GameSave.save("classroom", playerX, playerY, game.getGold(), game.getGems());
-                    showSaveToast = true;
-                    saveToastTimer = 2.5f;
+                case TASK:
+                    isQuestUiOpen = true;
+                    activeQuestTab = "Daily";
+                    gameMenu.close();
                     break;
-                case EXIT:
-                    Gdx.app.exit();
+                case ACHIEVEMENT:
+                    isQuestUiOpen = true;
+                    activeQuestTab = "Achievements";
+                    gameMenu.close();
+                    break;
+                case OPTION:
+                    showOptionConfirm = true;
+                    gameMenu.close();
                     break;
                 default:
                     break;
@@ -758,8 +775,10 @@ public class ExplorationScreen implements Screen {
         if (cutsceneState == CutsceneState.WINDOW_POPUP) {
             // Proses klik tombol di popup
             if (Gdx.input.justTouched()) {
-                float mx = Gdx.input.getX();
-                float my = 832f - Gdx.input.getY();
+                com.badlogic.gdx.math.Vector3 touchPoint = new com.badlogic.gdx.math.Vector3(Gdx.input.getX(), Gdx.input.getY(), 0);
+                uiCamera.unproject(touchPoint, viewport.getScreenX(), viewport.getScreenY(), viewport.getScreenWidth(), viewport.getScreenHeight());
+                float mx = touchPoint.x;
+                float my = touchPoint.y;
                 // Tombol IYA (kiri) ~ x=426-576, y=360-400
                 if (mx >= 426f && mx <= 576f && my >= 360f && my <= 400f) {
                     // Mulai fade putih ke cave
@@ -772,6 +791,26 @@ public class ExplorationScreen implements Screen {
                     cutsceneState = CutsceneState.NONE;
                     // Kembalikan NPC ke arah semula
                     for (NPC npc : npcs) npc.setLookingLeft(false);
+                }
+            }
+            isMoving = false;
+            return;
+        }
+
+        if (showOptionConfirm) {
+            if (Gdx.input.justTouched()) {
+                com.badlogic.gdx.math.Vector3 touchPoint = new com.badlogic.gdx.math.Vector3(Gdx.input.getX(), Gdx.input.getY(), 0);
+                uiCamera.unproject(touchPoint, viewport.getScreenX(), viewport.getScreenY(), viewport.getScreenWidth(), viewport.getScreenHeight());
+                float mx = touchPoint.x;
+                float my = touchPoint.y;
+                // Tombol IYA (kiri) ~ x=426-576, y=360-400
+                if (mx >= 426f && mx <= 576f && my >= 360f && my <= 400f) {
+                    GameSave.save("classroom", playerX, playerY, game.getGold(), game.getGems());
+                    Gdx.app.exit();
+                }
+                // Tombol TIDAK (kanan) ~ x=676-826, y=360-400
+                if (mx >= 676f && mx <= 826f && my >= 360f && my <= 400f) {
+                    showOptionConfirm = false;
                 }
             }
             isMoving = false;
@@ -800,8 +839,14 @@ public class ExplorationScreen implements Screen {
                     GameSave.clear();
                     game.initDefaultQuests();
                     game.setScreen(new ExplorationScreen(game));
+                    this.dispose();
+                    return;
                 }
-                if (devConsole.consumeBattle()) game.setScreen(new BattleScreen(game));
+                if (devConsole.consumeBattle()) {
+                    game.setScreen(new BattleScreen(game));
+                    this.dispose();
+                    return;
+                }
             }
             return;
         }
@@ -1506,6 +1551,7 @@ public class ExplorationScreen implements Screen {
         shapeRenderer.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
         
+        spriteBatch.setProjectionMatrix(uiCamera.combined);
         spriteBatch.begin();
         // Slime eyes & mouth
         font.setColor(Color.BLACK);
@@ -1680,6 +1726,7 @@ public class ExplorationScreen implements Screen {
         shapeRenderer.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
         
+        spriteBatch.setProjectionMatrix(uiCamera.combined);
         spriteBatch.begin();
         
         // Quest Main Header Title
@@ -1806,6 +1853,7 @@ public class ExplorationScreen implements Screen {
             shapeRenderer.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
             
+            spriteBatch.setProjectionMatrix(uiCamera.combined);
             spriteBatch.begin();
             questHeaderFont.setColor(Color.YELLOW);
             questHeaderFont.draw(spriteBatch, bannerText, bannerX, bannerAnimY + 32f, bannerW, Align.center, false);
@@ -1815,6 +1863,9 @@ public class ExplorationScreen implements Screen {
 
     @Override
     public void dispose() {
+        if (gameMenu != null) {
+            gameMenu.dispose();
+        }
         spriteBatch.dispose();
         shapeRenderer.dispose();
         renderer.dispose();
@@ -1930,21 +1981,11 @@ public class ExplorationScreen implements Screen {
         float boxW = 1253f - 300f;
         float boxH = 90f;
 
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        shapeRenderer.setProjectionMatrix(uiCamera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(16f / 255f, 22f / 255f, 38f / 255f, 0.95f);
-        shapeRenderer.rect(boxX, boxY, boxW, boxH);
-        shapeRenderer.setColor(Color.RED); // border merah melambangkan ketegangan/suara keras
-        shapeRenderer.rect(boxX, boxY, boxW, 3f);
-        shapeRenderer.rect(boxX, boxY + boxH - 3f, boxW, 3f);
-        shapeRenderer.rect(boxX, boxY, 3f, boxH);
-        shapeRenderer.rect(boxX + boxW - 3f, boxY, 3f, boxH);
-        shapeRenderer.end();
-        Gdx.gl.glDisable(GL20.GL_BLEND);
-
         spriteBatch.setProjectionMatrix(uiCamera.combined);
         spriteBatch.begin();
+        if (dialogBoxImage != null) {
+            spriteBatch.draw(dialogBoxImage, boxX, boxY, boxW, boxH);
+        }
         questHeaderFont.setColor(Color.RED);
         questHeaderFont.draw(spriteBatch, "* KRAKKKK!!! *", boxX, boxY + 62f, boxW, Align.center, false);
         font.setColor(Color.LIGHT_GRAY);
@@ -1959,42 +2000,87 @@ public class ExplorationScreen implements Screen {
         float boxX = (1253f - boxW) / 2f;
         float boxY = (832f - boxH) / 2f;
 
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        shapeRenderer.setProjectionMatrix(uiCamera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(16f / 255f, 22f / 255f, 38f / 255f, 0.98f);
-        shapeRenderer.rect(boxX, boxY, boxW, boxH);
-        shapeRenderer.setColor(Color.YELLOW);
-        shapeRenderer.rect(boxX, boxY, boxW, 3f);
-        shapeRenderer.rect(boxX, boxY + boxH - 3f, boxW, 3f);
-        shapeRenderer.rect(boxX, boxY, 3f, boxH);
-        shapeRenderer.rect(boxX + boxW - 3f, boxY, 3f, boxH);
-
-        // Hover effect pada tombol
         float mx = Gdx.input.getX();
         float my = 832f - Gdx.input.getY();
 
         // Tombol IYA (kiri) ~ x=426-576, y=360-400
         boolean hoverIya = (mx >= boxX + 50f && mx <= boxX + 200f && my >= boxY + 40f && my <= boxY + 80f);
-        shapeRenderer.setColor(hoverIya ? new Color(0f, 0.6f, 0f, 1f) : new Color(0f, 0.4f, 0f, 1f));
-        shapeRenderer.rect(boxX + 50f, boxY + 40f, 150f, 40f);
-
         // Tombol TIDAK (kanan) ~ x=676-826, y=360-400
         boolean hoverTidak = (mx >= boxX + boxW - 200f && mx <= boxX + boxW - 50f && my >= boxY + 40f && my <= boxY + 80f);
-        shapeRenderer.setColor(hoverTidak ? new Color(0.7f, 0f, 0f, 1f) : new Color(0.5f, 0f, 0f, 1f));
-        shapeRenderer.rect(boxX + boxW - 200f, boxY + 40f, 150f, 40f);
-
-        shapeRenderer.end();
-        Gdx.gl.glDisable(GL20.GL_BLEND);
 
         spriteBatch.setProjectionMatrix(uiCamera.combined);
         spriteBatch.begin();
+
+        if (dialogBoxImage != null) {
+            spriteBatch.draw(dialogBoxImage, boxX, boxY, boxW, boxH);
+        }
+
+        if (checkBoxYesTexture != null) {
+            if (hoverIya) {
+                spriteBatch.setColor(1f, 1f, 0.8f, 1f);
+                spriteBatch.draw(checkBoxYesTexture, boxX + 50f - 3.75f, boxY + 40f - 1f, 157.5f, 42f);
+                spriteBatch.setColor(Color.WHITE);
+            } else {
+                spriteBatch.draw(checkBoxYesTexture, boxX + 50f, boxY + 40f, 150f, 40f);
+            }
+        }
+
+        if (checkBoxNoTexture != null) {
+            if (hoverTidak) {
+                spriteBatch.setColor(1f, 1f, 0.8f, 1f);
+                spriteBatch.draw(checkBoxNoTexture, boxX + boxW - 200f - 3.75f, boxY + 40f - 1f, 157.5f, 42f);
+                spriteBatch.setColor(Color.WHITE);
+            } else {
+                spriteBatch.draw(checkBoxNoTexture, boxX + boxW - 200f, boxY + 40f, 150f, 40f);
+            }
+        }
+
         questHeaderFont.setColor(Color.WHITE);
         questHeaderFont.draw(spriteBatch, "Apakah anda ingin melihat?", boxX, boxY + boxH - 50f, boxW, Align.center, false);
+        spriteBatch.end();
+    }
 
-        font.setColor(Color.WHITE);
-        font.draw(spriteBatch, "IYA", boxX + 50f, boxY + 65f, 150f, Align.center, false);
-        font.draw(spriteBatch, "TIDAK", boxX + boxW - 200f, boxY + 65f, 150f, Align.center, false);
+    private void drawOptionConfirmPopup() {
+        float boxW = 500f;
+        float boxH = 200f;
+        float boxX = (1253f - boxW) / 2f;
+        float boxY = (832f - boxH) / 2f;
+
+        float mx = Gdx.input.getX();
+        float my = 832f - Gdx.input.getY();
+
+        boolean hoverYes = (mx >= boxX + 50f && mx <= boxX + 200f && my >= boxY + 40f && my <= boxY + 80f);
+        boolean hoverNo = (mx >= boxX + boxW - 200f && mx <= boxX + boxW - 50f && my >= boxY + 40f && my <= boxY + 80f);
+
+        spriteBatch.setProjectionMatrix(uiCamera.combined);
+        spriteBatch.begin();
+
+        if (dialogBoxImage != null) {
+            spriteBatch.draw(dialogBoxImage, boxX, boxY, boxW, boxH);
+        }
+
+        if (checkBoxYesTexture != null) {
+            if (hoverYes) {
+                spriteBatch.setColor(1f, 1f, 0.8f, 1f);
+                spriteBatch.draw(checkBoxYesTexture, boxX + 50f - 3.75f, boxY + 40f - 1f, 157.5f, 42f);
+                spriteBatch.setColor(Color.WHITE);
+            } else {
+                spriteBatch.draw(checkBoxYesTexture, boxX + 50f, boxY + 40f, 150f, 40f);
+            }
+        }
+
+        if (checkBoxNoTexture != null) {
+            if (hoverNo) {
+                spriteBatch.setColor(1f, 1f, 0.8f, 1f);
+                spriteBatch.draw(checkBoxNoTexture, boxX + boxW - 200f - 3.75f, boxY + 40f - 1f, 157.5f, 42f);
+                spriteBatch.setColor(Color.WHITE);
+            } else {
+                spriteBatch.draw(checkBoxNoTexture, boxX + boxW - 200f, boxY + 40f, 150f, 40f);
+            }
+        }
+
+        questHeaderFont.setColor(Color.WHITE);
+        questHeaderFont.draw(spriteBatch, "Simpan & Keluar Permainan?", boxX, boxY + boxH - 50f, boxW, Align.center, false);
         spriteBatch.end();
     }
 
